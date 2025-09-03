@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:menu_peo2025/screens/home/home_screen.dart';
+import 'package:menu_peo2025/screens/qr_scanner_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final Map<String, dynamic> restaurant; // ✅ بيانات المطعم المختار
+
+  const LoginScreen({super.key, required this.restaurant});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -25,6 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  /// تسجيل دخول موظف (أدمن/كاشير/مطبخ)
   Future<void> _signIn() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -34,49 +37,81 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final AuthResponse response = await Supabase.instance.client.auth.signInWithPassword(
+      final AuthResponse response =
+      await Supabase.instance.client.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      final User? user = response.user;
+      final user = response.user;
       if (user != null) {
-        // جلب بيانات البروفايل بعد تسجيل الدخول الناجح
         final profile = await Supabase.instance.client
             .from('profiles')
             .select()
             .eq('id', user.id)
             .single();
 
-        if (profile['restaurant_id'] != null) {
-          await Supabase.instance.client.rpc('set_current_restaurant', params: {
-            'restaurant_uuid': profile['restaurant_id']
-          });
-        }
-
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (context) => HomeScreen(profile: profile),
+            builder: (_) => HomeScreen(profile: profile),
           ),
         );
       }
     } catch (e) {
-      setState(() => _error = _getAuthErrorMessage(e.toString()));
+      setState(() => _error = "خطأ: ${e.toString()}");
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
-// دالة لترجمة رسائل الخطأ
-  String _getAuthErrorMessage(String message) {
-    if (message.contains('Invalid login credentials')) {
-      return 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
-    } else if (message.contains('Email not confirmed')) {
-      return 'البريد الإلكتروني غير مفعل';
-    } else {
-      return message;
-    }
+
+  /// ✅ نافذة خيارات دخول الزبون
+  void _showCustomerOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.fastfood, color: Colors.teal),
+            title: const Text("الدخول مباشرة"),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => HomeScreen(
+                    profile: {
+                      "role": "customer",
+                      "restaurant_id": widget.restaurant['id'],
+                      "full_name": "زبون",
+                      "email": "guest@local.com",
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.qr_code_scanner, color: Colors.orange),
+            title: const Text("الدخول عبر QR"),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => QRScannerScreen(
+                    restaurant: widget.restaurant,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -84,244 +119,104 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // خلفية الصورة
           Positioned.fill(
-            child: Image.asset(
-              'assets/screenFood.jpeg',
-              fit: BoxFit.cover,
-              filterQuality: FilterQuality.high,
-            ),
+            child: Image.asset('assets/screenFood.jpeg', fit: BoxFit.cover),
+          ),
+          Positioned.fill(
+            child: Container(color: Colors.black.withOpacity(0.6)),
           ),
 
-          // طبقة تظليل
-          Positioned.fill(
-            child: Container(
-              color: Colors.black.withOpacity(0.5),
-            ),
-          ),
-
-          // محتوى الشاشة
           Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // شعار التطبيق
-                  Container(
-                    padding: const EdgeInsets.all(1), // مسافة داخلية بين الصورة والإطار
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2), // لون شفاف للإطار
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.5), // لون حدود الإطار
-                        width: 2, // سماكة الحدود
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2), // ظل خفيف
-                          blurRadius: 10,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: ClipOval( // يجعل الصورة مدورة
-                      child: Image.asset(
-                        'assets/amer.jpg', // مسار صورة الشعار
-                        width: 100, // عرض الصورة
-                        height: 100, // ارتفاع الصورة
-                        fit: BoxFit.cover, // تغطية المساحة مع الحفاظ على النسب
-                      ),
-                    ),
+                  ClipOval(
+                    child: Image.asset("assets/amer.jpg",
+                        width: 100, height: 100),
                   ),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 20),
 
-                  // بطاقة تسجيل الدخول الشفافة
+                  // كرت تسجيل دخول الموظف
                   Container(
-                    padding: const EdgeInsets.all(30),
+                    padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.3),
-                        width: 1,
-                      ),
+                      color: Colors.black.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: Form(
                       key: _formKey,
                       child: Column(
                         children: [
-                          const Text(
-                            'تسجيل الدخول',
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          const Text(
-                            'أدخل بياناتك للوصول إلى حسابك',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.white70,
-                            ),
-                          ),
-                          const SizedBox(height: 30),
-
-                          // حقل البريد الإلكتروني
-                          TextFormField(
-                            controller: _emailController,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: InputDecoration(
-                              labelText: 'البريد الإلكتروني',
-                              labelStyle: const TextStyle(color: Colors.white70),
-                              prefixIcon: const Icon(Icons.email, color: Colors.white70),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.white70),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.white70),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.white),
-                              ),
-                              filled: true,
-                              fillColor: Colors.black.withOpacity(0.2),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'يجب إدخال البريد الإلكتروني';
-                              }
-                              if (!value.contains('@')) {
-                                return 'بريد إلكتروني غير صالح';
-                              }
-                              return null;
-                            },
-                          ),
+                          const Text("تسجيل الدخول",
+                              style: TextStyle(
+                                  color: Colors.white, fontSize: 20)),
                           const SizedBox(height: 20),
 
-                          // حقل كلمة المرور
+                          TextFormField(
+                            controller: _emailController,
+                            decoration: const InputDecoration(
+                              labelText: "البريد الإلكتروني",
+                              labelStyle: TextStyle(color: Colors.white),
+                              prefixIcon:
+                              Icon(Icons.email, color: Colors.white),
+                            ),
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          const SizedBox(height: 16),
+
                           TextFormField(
                             controller: _passwordController,
-                            style: const TextStyle(color: Colors.white),
                             obscureText: _obscurePassword,
                             decoration: InputDecoration(
-                              labelText: 'كلمة المرور',
-                              labelStyle: const TextStyle(color: Colors.white70),
-                              prefixIcon: const Icon(Icons.lock, color: Colors.white70),
+                              labelText: "كلمة المرور",
+                              labelStyle:
+                              const TextStyle(color: Colors.white),
+                              prefixIcon:
+                              const Icon(Icons.lock, color: Colors.white),
                               suffixIcon: IconButton(
                                 icon: Icon(
                                   _obscurePassword
                                       ? Icons.visibility_off
                                       : Icons.visibility,
-                                  color: Colors.white70,
+                                  color: Colors.white,
                                 ),
-                                onPressed: () {
-                                  setState(() {
-                                    _obscurePassword = !_obscurePassword;
-                                  });
-                                },
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.white70),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.white70),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.white),
-                              ),
-                              filled: true,
-                              fillColor: Colors.black.withOpacity(0.2),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'يجب إدخال كلمة المرور';
-                              }
-                              if (value.length < 6) {
-                                return 'يجب أن تكون كلمة المرور 6 أحرف على الأقل';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 10),
-
-                          // نسيت كلمة المرور؟
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton(
-                              onPressed: () {},
-                              child: const Text(
-                                'نسيت كلمة المرور؟',
-                                style: TextStyle(color: Colors.white70),
+                                onPressed: () => setState(() =>
+                                _obscurePassword = !_obscurePassword),
                               ),
                             ),
+                            style: const TextStyle(color: Colors.white),
                           ),
                           const SizedBox(height: 20),
 
-                          // رسالة الخطأ
-                          if (_error != null)
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.red),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.error, color: Colors.red),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      _error!,
-                                      style: const TextStyle(color: Colors.white),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          const SizedBox(height: 20),
-
-                          // زر تسجيل الدخول
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: ElevatedButton(
-                              onPressed: _isLoading ? null : _signIn,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white.withOpacity(0.2),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  side: const BorderSide(color: Colors.white70),
-                                ),
-                              ),
-                              child: _isLoading
-                                  ? const CircularProgressIndicator(color: Colors.white)
-                                  : const Text('تسجيل الدخول'),
-                            ),
+                          ElevatedButton(
+                            onPressed: _isLoading ? null : _signIn,
+                            child: _isLoading
+                                ? const CircularProgressIndicator(
+                                color: Colors.white)
+                                : const Text("تسجيل الدخول"),
                           ),
+
+                          if (_error != null) ...[
+                            const SizedBox(height: 10),
+                            Text(_error!,
+                                style: const TextStyle(color: Colors.red)),
+                          ],
                         ],
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 30),
 
-                  // رابط إنشاء حساب جديد
-                  TextButton(
-                    onPressed: () {},
-                    child: const Text(
-                      'ليس لديك حساب؟ سجل الآن',
-                      style: TextStyle(color: Colors.white70),
+                  // زر دخول كزبون
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.person, color: Colors.white),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
                     ),
+                    onPressed: () => _showCustomerOptions(context),
+                    label: const Text("دخول كزبون"),
                   ),
                 ],
               ),

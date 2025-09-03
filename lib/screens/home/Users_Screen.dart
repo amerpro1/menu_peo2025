@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class UsersScreen extends StatefulWidget {
-  final Map<String, dynamic>? profile; // بروفايل المدير الحالي
+  final Map<String, dynamic>? profile;
 
   const UsersScreen({super.key, this.profile});
 
@@ -16,6 +16,8 @@ class _UsersScreenState extends State<UsersScreen> {
   bool _loading = false;
   bool _isAdmin = false;
   String? _restaurantId;
+  String? _currentUserId;
+  String? _currentUserName;
 
   @override
   void initState() {
@@ -23,63 +25,68 @@ class _UsersScreenState extends State<UsersScreen> {
     _checkRoleAndLoad();
   }
 
-  /// التحقق من الدور وجلب المستخدمين
+  /// التحقق من دور المستخدم وجلب restaurant_id الخاص به
   Future<void> _checkRoleAndLoad() async {
     try {
       final uid = supabase.auth.currentUser?.id;
-      if (uid == null) {
-        throw Exception("لم يتم تسجيل الدخول");
-      }
+      if (uid == null) throw Exception("لم يتم تسجيل الدخول");
 
-      final rows = await supabase
+      final row = await supabase
           .from("profiles")
-          .select("role, restaurant_id")
+          .select("id, role, restaurant_id, name")
           .eq("id", uid)
-          .limit(1); // ✅ نرجع List دائمًا
+          .maybeSingle();
 
-      if (rows.isEmpty) {
-        throw Exception("لا يوجد بروفايل مرتبط بهذا المستخدم");
-      }
-
-      final profile = rows.first;
+      if (row == null) throw Exception("لا يوجد بروفايل مرتبط");
 
       setState(() {
-        _isAdmin = profile["role"] == "admin";
-        _restaurantId = profile["restaurant_id"];
+        _currentUserId = row["id"];
+        _currentUserName = row["name"];
+        _isAdmin = row["role"] == "admin";
+        _restaurantId = row["restaurant_id"];
       });
 
       if (_restaurantId != null) {
-        _loadUsers(_restaurantId!);
+        _loadUsers();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text("خطأ: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("خطأ: $e")),
+        );
       }
     }
   }
 
-  /// تحميل المستخدمين للمطعم الحالي
-  Future<void> _loadUsers(String rid) async {
+  /// تحميل جميع المستخدمين لهذا المطعم
+  Future<void> _loadUsers() async {
+    if (_restaurantId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ لا يوجد مطعم مرتبط بالحساب")),
+      );
+      return;
+    }
+
     setState(() => _loading = true);
     try {
       final rows = await supabase
           .from("profiles")
-          .select("id, name, email, role, restaurant_id")
-          .eq("restaurant_id", rid)
+          .select("id, name, email, role, restaurant_id, created_at")
+          .eq("restaurant_id", _restaurantId!)
           .order("created_at", ascending: false);
 
+      debugPrint("✅ عدد الحسابات: ${rows.length}");
       setState(() {
         _users = (rows as List).cast<Map<String, dynamic>>();
       });
     } catch (e) {
-      debugPrint("خطأ تحميل المستخدمين: $e");
+      debugPrint("❌ خطأ تحميل المستخدمين: $e");
     } finally {
       setState(() => _loading = false);
     }
   }
 
-  /// إضافة أو تعديل مستخدم
+  /// نافذة إضافة أو تعديل مستخدم
   Future<void> _userDialog({Map<String, dynamic>? user}) async {
     final emailCtrl = TextEditingController(text: user?["email"] ?? "");
     final nameCtrl = TextEditingController(text: user?["name"] ?? "");
@@ -90,7 +97,7 @@ class _UsersScreenState extends State<UsersScreen> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: Text(user == null ? "إضافة مستخدم جديد" : "تعديل مستخدم"),
+          title: Text(user == null ? "إضافة مستخدم" : "تعديل مستخدم"),
           content: SingleChildScrollView(
             child: Column(
               children: [
@@ -123,13 +130,23 @@ class _UsersScreenState extends State<UsersScreen> {
             ),
           ),
           actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("إلغاء")),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("إلغاء")),
             ElevatedButton(
               onPressed: () async {
                 try {
-                  if (_restaurantId == null) throw Exception("لا يوجد مطعم مرتبط");
+                  // 🟢 تأكيد الحصول على restaurant_id الصحيح
+                  if (_restaurantId == null) {
+                    final adminProfile = await supabase
+                        .from("profiles")
+                        .select("restaurant_id")
+                        .eq("id", supabase.auth.currentUser!.id)
+                        .maybeSingle();
+
+                    if (adminProfile == null) {
+                      throw Exception("⚠️ لا يوجد مطعم مرتبط بحساب المدير");
+                    }
+                    _restaurantId = adminProfile["restaurant_id"];
+                  }
 
                   if (user == null) {
                     // إنشاء مستخدم جديد
@@ -159,20 +176,12 @@ class _UsersScreenState extends State<UsersScreen> {
                   if (mounted) {
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(user == null
-                            ? "تمت إضافة المستخدم"
-                            : "تم تعديل المستخدم"),
-                      ),
+                      SnackBar(content: Text(user == null ? "✅ تمت الإضافة" : "✅ تم التعديل")),
                     );
-                  }
-                  if (_restaurantId != null) {
-                    _loadUsers(_restaurantId!);
+                    _loadUsers();
                   }
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("خطأ: $e")),
-                  );
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ: $e")));
                 }
               },
               child: const Text("حفظ"),
@@ -183,61 +192,41 @@ class _UsersScreenState extends State<UsersScreen> {
     );
   }
 
-  /// تأكيد الحذف
-  Future<void> _confirmDeleteUser(String id, String name) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text("تأكيد الحذف"),
-          content: Text("هل أنت متأكد من حذف الحساب ($name) ؟"),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text("إلغاء"),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text("حذف"),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed == true) {
-      _deleteUser(id);
-    }
-  }
-
   /// حذف مستخدم
   Future<void> _deleteUser(String id) async {
+    if (id == _currentUserId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ لا يمكنك حذف حسابك الحالي")),
+      );
+      return;
+    }
+
     try {
       await supabase.from("profiles").delete().eq("id", id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("تم حذف الحساب")),
+          const SnackBar(content: Text("✅ تم الحذف")),
         );
-      }
-      if (_restaurantId != null) {
-        _loadUsers(_restaurantId!);
+        _loadUsers();
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("فشل الحذف: $e")),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ: $e")));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final userName = widget.profile?['name'] ?? "مدير";
-
     return Scaffold(
-      appBar: AppBar(title: const Text("إدارة حسابات المطعم")),
+      appBar: AppBar(
+        title: const Text("إدارة حسابات المطعم"),
+        backgroundColor: Colors.teal,
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadUsers),
+        ],
+      ),
       floatingActionButton: _isAdmin
           ? FloatingActionButton(
+        backgroundColor: Colors.teal,
         onPressed: () => _userDialog(),
         child: const Icon(Icons.add),
       )
@@ -246,48 +235,43 @@ class _UsersScreenState extends State<UsersScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
         children: [
-          // بطاقة المدير الحالي
-          Card(
-            margin: const EdgeInsets.all(12),
-            child: ListTile(
-              leading: const Icon(Icons.verified_user,
-                  size: 40, color: Colors.teal),
-              title: Text(
-                userName,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold),
+          if (_currentUserName != null)
+            Card(
+              margin: const EdgeInsets.all(8),
+              child: ListTile(
+                leading: const Icon(Icons.verified_user, color: Colors.teal, size: 40),
+                title: Text(
+                  _currentUserName!,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: const Text("مدير المطعم الحالي"),
               ),
-              subtitle: const Text("مدير المطعم الحالي"),
             ),
-          ),
           const Divider(),
           Expanded(
-            child: ListView.builder(
+            child: _users.isEmpty
+                ? const Center(child: Text("لا يوجد مستخدمين بعد"))
+                : ListView.builder(
               itemCount: _users.length,
               itemBuilder: (ctx, i) {
                 final u = _users[i];
                 return Card(
-                  margin: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 6),
+                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   child: ListTile(
                     leading: const Icon(Icons.person, color: Colors.teal),
                     title: Text(u["name"] ?? ""),
-                    subtitle:
-                    Text("${u["email"]} - الدور: ${u["role"]}"),
+                    subtitle: Text("${u["email"]} - الدور: ${u["role"]}"),
                     trailing: _isAdmin
                         ? Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.edit,
-                              color: Colors.blue),
+                          icon: const Icon(Icons.edit, color: Colors.blue),
                           onPressed: () => _userDialog(user: u),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.delete,
-                              color: Colors.red),
-                          onPressed: () =>
-                              _confirmDeleteUser(u["id"], u["name"]),
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () => _deleteUser(u["id"]),
                         ),
                       ],
                     )

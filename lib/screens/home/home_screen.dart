@@ -52,15 +52,26 @@ class _HomeScreenState extends State<HomeScreen> {
   final Color lightTextColor = Colors.white;
 
   @override
+  @override
   void initState() {
     super.initState();
+    // ✅ لو دخل كزبون (customer) أو عن طريق QR
     if (widget.initialTableId != null) {
       _selectedTableId = widget.initialTableId;
       _selectedTableNumber = widget.initialTableNumber;
       _orderType = 'dine_in';
     }
-    _fetchData();
+
+    if (widget.profile['restaurant_id'] == null) {
+      // في حال ماكو مطعم محدد
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ لم يتم تحديد مطعم")),
+      );
+    } else {
+      _fetchData();
+    }
   }
+
 
 
   Future<void> switchRestaurant(String newRestaurantId) async {
@@ -98,6 +109,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
   Future<void> _fetchData() async {
+    if (widget.profile['restaurant_id'] == null) return;
+
     try {
       final categories = await supabase
           .from('categories')
@@ -123,6 +136,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
   }
+
 
   Widget _buildDrawer(bool isAdmin, bool isCashier) {
     return Drawer(
@@ -394,7 +408,7 @@ class _HomeScreenState extends State<HomeScreen> {
         'order_type': paymentData['order_type'],
         'table_number': paymentData['table_number'],
         'restaurant_id': widget.profile['restaurant_id'],
-        'user_id': widget.profile['id'],
+        'user_id': widget.profile['id'] == 'guest' ? null : widget.profile['id'],
         'status': 'pending',
       })
           .select()
@@ -480,8 +494,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _signOut() async {
     try {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-      );
+        MaterialPageRoute(
+          builder: (context) => LoginScreen(
+            restaurant: widget.profile['restaurant'], // أو المتغير اللي عندك يحمل بيانات المطعم
+          ),
+        ),      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

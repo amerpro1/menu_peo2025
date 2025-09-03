@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/auth/login_screen.dart';
+import 'screens/restaurant_selection_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -37,7 +38,8 @@ class MyApp extends StatelessWidget {
           centerTitle: true,
         ),
       ),
-      home:  LoginScreen(),
+     // home:  LoginScreen(),
+      home: const RestaurantSelectionScreen(), // ✅ شاشة البداية
     );
   }
 }

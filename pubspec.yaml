@@ -45,6 +45,8 @@ dependencies:
   app_links: ^6.4.0
   pdf: ^3.10.7
   printing: ^5.13.3
+  qr_code_scanner: ^1.0.1
+  shared_preferences: ^2.2.2
 
 
 
